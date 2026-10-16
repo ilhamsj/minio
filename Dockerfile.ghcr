@@ -1,0 +1,24 @@
+# Source build of minio, published to GHCR by .github/workflows/ghcr.yml.
+# LDFLAGS is computed on the runner (buildscripts/gen-ldflags.go needs .git,
+# which .dockerignore excludes). Go cross-compiles on the build platform.
+ARG GO_VERSION=1.24
+
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS build
+ARG TARGETOS
+ARG TARGETARCH
+ARG LDFLAGS="-s -w"
+ENV CGO_ENABLED=0 GOTOOLCHAIN=auto
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -tags kqueue -trimpath -ldflags "$LDFLAGS" -o /out/minio .
+
+FROM alpine:3.22
+RUN apk add --no-cache ca-certificates curl
+COPY --from=build /out/minio /usr/bin/minio
+EXPOSE 9000 9001
+VOLUME ["/data"]
+ENTRYPOINT ["/usr/bin/minio"]
+CMD ["server", "/data", "--console-address", ":9001"]
